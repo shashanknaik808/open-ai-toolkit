@@ -1,246 +1,394 @@
-"""Tests for Open AI Toolkit."""
+"""
+Open AI Toolkit
 
-import io
+A lightweight toolkit for interacting with local AI models through Ollama.
+"""
+
 import json
-import unittest
-from unittest.mock import MagicMock, patch
-
-import app
+import urllib.error
+import urllib.request
 
 
-class TestOpenAIToolkit(unittest.TestCase):
+OLLAMA_BASE_URL = "http://localhost:11434"
+DEFAULT_MODEL = "llama3.2"
 
-    def test_default_model(self):
-        """The default model should be llama3.2."""
-        self.assertEqual(app.DEFAULT_MODEL, "llama3.2")
 
-    @patch("app.ollama_request")
-    def test_get_models(self, mock_request):
-        """Installed Ollama models should be returned correctly."""
+def ollama_request(path, data=None):
+    """Send a request to the local Ollama API."""
 
-        response_data = {
-            "models": [
-                {"name": "llama3.2"},
-                {"name": "mistral"},
-            ]
-        }
+    url = f"{OLLAMA_BASE_URL}{path}"
 
-        mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(
-            response_data
-        ).encode("utf-8")
+    try:
+        if data is None:
+            return urllib.request.urlopen(url)
 
-        mock_request.return_value.__enter__.return_value = mock_response
-
-        models = app.get_models()
-
-        self.assertEqual(
-            models,
-            ["llama3.2", "mistral"],
-        )
-
-        mock_request.assert_called_once_with(
-            "/api/tags"
-        )
-
-    @patch("app.ollama_request")
-    def test_generate(self, mock_request):
-        """Non-streaming generation should return the response."""
-
-        response_data = {
-            "response": "Hello world!"
-        }
-
-        mock_response = MagicMock()
-        mock_response.read.return_value = json.dumps(
-            response_data
-        ).encode("utf-8")
-
-        mock_request.return_value.__enter__.return_value = mock_response
-
-        result = app.generate(
-            "Say hello",
-            "llama3.2",
-        )
-
-        self.assertEqual(
-            result,
-            "Hello world!",
-        )
-
-        mock_request.assert_called_once_with(
-            "/api/generate",
-            {
-                "model": "llama3.2",
-                "prompt": "Say hello",
-                "stream": False,
+        request = urllib.request.Request(
+            url,
+            data=json.dumps(data).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
             },
+            method="POST",
         )
 
-    @patch("app.ollama_request")
-    def test_generate_streaming(self, mock_request):
-        """Streaming chunks should be returned in order."""
+        return urllib.request.urlopen(request)
 
-        chunks = [
-            b'{"response":"Hello","done":false}\n',
-            b'{"response":" world","done":false}\n',
-            b'{"response":"!","done":true}\n',
-        ]
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(
+            f"Ollama returned HTTP error {error.code}."
+        ) from error
 
-        mock_response = MagicMock()
-        mock_response.__iter__.return_value = iter(chunks)
+    except urllib.error.URLError as error:
+        raise RuntimeError(
+            "Could not connect to Ollama. "
+            "Make sure Ollama is installed and running."
+        ) from error
 
-        mock_request.return_value.__enter__.return_value = mock_response
 
-        result = list(
-            app.generate_stream(
-                "Say hello",
-                "llama3.2",
+def get_models():
+    """Return the names of locally installed Ollama models."""
+
+    with ollama_request("/api/tags") as response:
+        data = json.loads(
+            response.read().decode("utf-8")
+        )
+
+    return [
+        model["name"]
+        for model in data.get("models", [])
+        if "name" in model
+    ]
+
+
+def generate(prompt, model=DEFAULT_MODEL):
+    """Generate a complete response from an Ollama model."""
+
+    data = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+    }
+
+    with ollama_request(
+        "/api/generate",
+        data,
+    ) as response:
+        result = json.loads(
+            response.read().decode("utf-8")
+        )
+
+    if "error" in result:
+        raise RuntimeError(result["error"])
+
+    return result.get("response", "")
+
+
+def generate_stream(prompt, model=DEFAULT_MODEL):
+    """Stream response chunks from an Ollama model."""
+
+    data = {
+        "model": model,
+        "prompt": prompt,
+        "stream": True,
+    }
+
+    with ollama_request(
+        "/api/generate",
+        data,
+    ) as response:
+
+        for line in response:
+
+            if not line:
+                continue
+
+            result = json.loads(
+                line.decode("utf-8")
             )
-        )
 
-        self.assertEqual(
-            result,
-            [
-                "Hello",
-                " world",
-                "!",
-            ],
-        )
-
-        mock_request.assert_called_once_with(
-            "/api/generate",
-            {
-                "model": "llama3.2",
-                "prompt": "Say hello",
-                "stream": True,
-            },
-        )
-
-    @patch("app.ollama_request")
-    def test_generate_handles_ollama_error(
-        self,
-        mock_request,
-    ):
-        """Ollama errors should raise RuntimeError."""
-
-        chunks = [
-            b'{"error":"model not found"}\n',
-        ]
-
-        mock_response = MagicMock()
-        mock_response.__iter__.return_value = iter(chunks)
-
-        mock_request.return_value.__enter__.return_value = mock_response
-
-        with self.assertRaisesRegex(
-            RuntimeError,
-            "model not found",
-        ):
-            list(
-                app.generate_stream(
-                    "Hello",
-                    "missing-model",
+            if "error" in result:
+                raise RuntimeError(
+                    result["error"]
                 )
+
+            chunk = result.get(
+                "response",
+                "",
             )
 
-    def test_build_prompt_without_history(self):
-        """A new conversation should contain the current prompt."""
+            if chunk:
+                yield chunk
 
-        result = app.build_prompt(
-            [],
-            "Hello",
+            if result.get(
+                "done",
+                False,
+            ):
+                break
+
+
+def build_prompt(history, prompt):
+    """Build a prompt containing conversation history."""
+
+    lines = []
+
+    for message in history:
+
+        role = message.get(
+            "role",
+            "",
         )
 
-        self.assertEqual(
-            result,
-            "User: Hello\nAssistant:",
+        content = message.get(
+            "content",
+            "",
         )
 
-    def test_build_prompt_with_history(self):
-        """Previous messages should be included in the prompt."""
-
-        history = [
-            {
-                "role": "user",
-                "content": "My name is Shashank.",
-            },
-            {
-                "role": "assistant",
-                "content": "Nice to meet you, Shashank.",
-            },
-        ]
-
-        result = app.build_prompt(
-            history,
-            "What is my name?",
-        )
-
-        expected = (
-            "User: My name is Shashank.\n"
-            "Assistant: Nice to meet you, Shashank.\n"
-            "User: What is my name?\n"
-            "Assistant:"
-        )
-
-        self.assertEqual(
-            result,
-            expected,
-        )
-
-    def test_build_prompt_multiple_messages(self):
-        """Conversation history should preserve message order."""
-
-        history = [
-            {
-                "role": "user",
-                "content": "First question",
-            },
-            {
-                "role": "assistant",
-                "content": "First answer",
-            },
-            {
-                "role": "user",
-                "content": "Second question",
-            },
-            {
-                "role": "assistant",
-                "content": "Second answer",
-            },
-        ]
-
-        result = app.build_prompt(
-            history,
-            "Third question",
-        )
-
-        self.assertIn(
-            "User: First question",
-            result,
-        )
-
-        self.assertIn(
-            "Assistant: First answer",
-            result,
-        )
-
-        self.assertIn(
-            "User: Second question",
-            result,
-        )
-
-        self.assertIn(
-            "Assistant: Second answer",
-            result,
-        )
-
-        self.assertTrue(
-            result.endswith(
-                "User: Third question\nAssistant:"
+        if role == "user":
+            lines.append(
+                f"User: {content}"
             )
+
+        elif role == "assistant":
+            lines.append(
+                f"Assistant: {content}"
+            )
+
+    lines.append(
+        f"User: {prompt}"
+    )
+
+    lines.append(
+        "Assistant:"
+    )
+
+    return "\n".join(lines)
+
+
+def choose_model():
+    """Allow the user to choose an installed Ollama model."""
+
+    try:
+        models = get_models()
+
+    except RuntimeError as error:
+        print(
+            f"\nError: {error}"
         )
+
+        return DEFAULT_MODEL
+
+    if not models:
+        print(
+            "\nNo Ollama models were found. "
+            f"Using default model: {DEFAULT_MODEL}"
+        )
+
+        return DEFAULT_MODEL
+
+    print("\nAvailable models:")
+
+    for index, model in enumerate(
+        models,
+        start=1,
+    ):
+        print(
+            f"{index}. {model}"
+        )
+
+    while True:
+
+        choice = input(
+            f"\nChoose a model [1-{len(models)}] "
+            f"or press Enter for {models[0]}: "
+        ).strip()
+
+        if not choice:
+            return models[0]
+
+        try:
+            index = int(choice) - 1
+
+            if 0 <= index < len(models):
+                return models[index]
+
+        except ValueError:
+            pass
+
+        print(
+            "Invalid selection. "
+            "Please try again."
+        )
+
+
+def main():
+    """Run the interactive Open AI Toolkit."""
+
+    print("=" * 50)
+    print("Open AI Toolkit")
+    print("=" * 50)
+
+    print(
+        "\nLocal AI command-line interface "
+        "powered by Ollama."
+    )
+
+    model = choose_model()
+
+    print(
+        f"\nUsing model: {model}"
+    )
+
+    print(
+        "Type /model to change models."
+    )
+
+    print(
+        "Type /stream to toggle streaming."
+    )
+
+    print(
+        "Type /clear to clear conversation history."
+    )
+
+    print(
+        "Type exit to quit."
+    )
+
+    streaming = True
+    history = []
+
+    while True:
+
+        try:
+            prompt = input(
+                "\nYou: "
+            ).strip()
+
+        except (
+            EOFError,
+            KeyboardInterrupt,
+        ):
+            print(
+                "\nGoodbye!"
+            )
+            break
+
+        if not prompt:
+            continue
+
+        if prompt.lower() in {
+            "exit",
+            "quit",
+        }:
+            print(
+                "Goodbye!"
+            )
+            break
+
+        if prompt.lower() == "/model":
+
+            model = choose_model()
+
+            print(
+                f"\nUsing model: {model}"
+            )
+
+            continue
+
+        if prompt.lower() == "/stream":
+
+            streaming = not streaming
+
+            status = (
+                "enabled"
+                if streaming
+                else "disabled"
+            )
+
+            print(
+                f"\nStreaming {status}."
+            )
+
+            continue
+
+        if prompt.lower() == "/clear":
+
+            history.clear()
+
+            print(
+                "\nConversation history cleared."
+            )
+
+            continue
+
+        full_prompt = build_prompt(
+            history,
+            prompt,
+        )
+
+        print(
+            "\nAI: ",
+            end="",
+            flush=True,
+        )
+
+        try:
+
+            if streaming:
+
+                chunks = []
+
+                for chunk in generate_stream(
+                    full_prompt,
+                    model,
+                ):
+                    print(
+                        chunk,
+                        end="",
+                        flush=True,
+                    )
+
+                    chunks.append(
+                        chunk
+                    )
+
+                response = "".join(
+                    chunks
+                )
+
+                print()
+
+            else:
+
+                response = generate(
+                    full_prompt,
+                    model,
+                )
+
+                print(
+                    response
+                )
+
+            history.append(
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            )
+
+            history.append(
+                {
+                    "role": "assistant",
+                    "content": response,
+                }
+            )
+
+        except RuntimeError as error:
+
+            print(
+                f"\nError: {error}"
+            )
 
 
 if __name__ == "__main__":
-    unittest.main()
+    main()
