@@ -4,6 +4,7 @@ Open AI Toolkit
 A lightweight toolkit for interacting with local AI models through Ollama.
 """
 
+import argparse
 import json
 import urllib.error
 import urllib.request
@@ -11,6 +12,7 @@ import urllib.request
 
 OLLAMA_BASE_URL = "http://localhost:11434"
 DEFAULT_MODEL = "llama3.2"
+VERSION = "0.1.0"
 
 
 def ollama_request(path, data=None):
@@ -220,8 +222,30 @@ def choose_model():
         )
 
 
+def parse_args():
+    """Parse command-line arguments."""
+
+    parser = argparse.ArgumentParser(
+        prog="open-ai-toolkit",
+        description=(
+            "A lightweight command-line toolkit for "
+            "interacting with local AI models through Ollama."
+        ),
+    )
+
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {VERSION}",
+    )
+
+    return parser.parse_args()
+
+
 def main():
     """Run the interactive Open AI Toolkit."""
+
+    parse_args()
 
     print("=" * 50)
     print("Open AI Toolkit")
