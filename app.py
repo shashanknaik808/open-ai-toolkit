@@ -1,4 +1,65 @@
-Fix app syntax error            f"Ollama returned HTTP {error.code}: {error.reason}"
+"""
+Open AI Toolkit
+A lightweight toolkit for interacting with local AI models through Ollama.
+"""
+
+import json
+import urllib.error
+import urllib.request
+
+OLLAMA_BASE_URL = "http://localhost:11434"
+DEFAULT_MODEL = "llama3.2"
+
+
+def get_models():
+    """Return the names of locally installed Ollama models."""
+
+    url = f"{OLLAMA_BASE_URL}/api/tags"
+
+    try:
+        with urllib.request.urlopen(url) as response:
+            data = json.loads(response.read().decode("utf-8"))
+
+        return [
+            model["name"]
+            for model in data.get("models", [])
+            if "name" in model
+        ]
+
+    except urllib.error.URLError as error:
+        raise RuntimeError(
+            "Could not connect to Ollama. "
+            "Make sure Ollama is installed and running."
+        ) from error
+
+
+def generate(prompt, model=DEFAULT_MODEL):
+    """Generate a complete response from an Ollama model."""
+
+    url = f"{OLLAMA_BASE_URL}/api/generate"
+
+    data = {
+        "model": model,
+        "prompt": prompt,
+        "stream": False,
+    }
+
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(data).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(request) as response:
+            result = json.loads(response.read().decode("utf-8"))
+
+        return result.get("response", "")
+
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(
+            f"Ollama returned HTTP error {error.code}."
         ) from error
 
     except urllib.error.URLError as error:
@@ -8,20 +69,10 @@ Fix app syntax error            f"Ollama returned HTTP {error.code}: {error.reas
         ) from error
 
 
-def list_models():
-    """Return the names of locally installed Ollama models."""
+def generate_stream(prompt, model=DEFAULT_MODEL):
+    """Stream response chunks from an Ollama model."""
 
-    with ollama_request("/api/tags") as response:
-        result = json.loads(response.read().decode("utf-8"))
-
-    return [
-        model["name"]
-        for model in result.get("models", [])
-    ]
-
-
-def generate(prompt: str, model: str):
-    """Generate and stream a response from Ollama."""
+    url = f"{OLLAMA_BASE_URL}/api/generate"
 
     data = {
         "model": model,
@@ -29,246 +80,143 @@ def generate(prompt: str, model: str):
         "stream": True,
     }
 
-    with ollama_request("/api/generate", data) as response:
-        for raw_line in response:
-            if not raw_line:
-                continue
-
-            result = json.loads(raw_line.decode("utf-8"))
-
-            if "error" in result:
-                raise RuntimeError(result["error"])
-
-            text = result.get("response", "")
-
-            if text:
-                print(text, end="", flush=True)
-
-
-def show_help():
-    """Display available commands."""
-
-    print(
-        "\nCommands:\n"
-        "  /help            Show available commands\n"
-        "  /models          List installed Ollama models\n"
-        "  /model NAME      Change the active model\n"
-        "  /exit            Exit Open AI Toolkit\n"
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(data).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method="POST",
     )
 
-
-def main():
-    """Run the interactive command-line interface."""
-
-    current_model = DEFAULT_MODEL
-
-    print("=" * 50)
-    print("Open AI Toolkit")
-    print("=" * 50)
-    print(f"Active model: {current_model}")
-    print("Type /help for available commands.\n")
-
-    while True:
-        try:
-            prompt = input("You: ").strip()
-
-            if not prompt:
-                continue
-
-            if prompt.lower() in {"/exit", "exit", "quit"}:
-                print("Goodbye!")
-                break
-
-            if prompt == "/help":
-                show_help()
-                continue
-
-            if prompt == "/models":
-                models = list_models()
-
-                if not models:
-                    print("\nNo Ollama models are installed.\n")
+    try:
+        with urllib.request.urlopen(request) as response:
+            for line in response:
+                if not line:
                     continue
 
-                print("\nInstalled models:")
+                result = json.loads(line.decode("utf-8"))
 
-                for model in models:
-                    marker = "*" if model == current_model else "-"
-                    print(f"  {marker} {model}")
+                chunk = result.get("response", "")
 
-                print()
-                continue
+                if chunk:
+                    yield chunk
 
-            if prompt.startswith("/model "):
-                new_model = prompt[7:].strip()
+                if result.get("done", False):
+                    break
 
-                if not new_model:
-                    print("Usage: /model MODEL_NAME\n")
-                    continue
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(
+            f"Ollama returned HTTP error {error.code}."
+        ) from error
 
-                models = list_models()
-
-                if new_model not in models:
-                    print(
-                        f"Model '{new_model}' is not installed.\n"
-                        "Use /models to see available models.\n"
-                    )
-                    continue
-
-                current_model = new_model
-                print(f"Active model changed to: {current_model}\n")
-                continue
-
-            print(f"\n{current_model}: ", end="", flush=True)
-            generate(prompt, current_model)
-            print("\n")
-
-        except RuntimeError as error:
-            print(f"\nError: {error}\n")
-
-        except KeyboardInterrupt:
-            print("\n\nGoodbye!")
-            break
-
-
-if __name__ == "__main__":
-    main()        for model in result.get("models", [])
-    ]
-
-
-def generate(prompt: str, model: str):
-    """Generate and stream a response from Ollama."""
-
-    data = {
-        "model": model,
-        "prompt": prompt,
-        "stream": True,
-    }
-
-    with ollama_request("/api/generate", data) as response:
-        for raw_line in response:
-            if not raw_line:
-                continue
-
-            result = json.loads(raw_line.decode("utf-8"))
-
-            if "error" in result:
-                raise RuntimeError(result["error"])
-
-            text = result.get("response", "")
-
-            if text:
-                print(text, end="", flush=True)
-
-
-def show_help():
-    """Display available commands."""
-
-    print(
-        "\nCommands:\n"
-        "  /help            Show available commands\n"
-        "  /models          List installed Ollama models\n"
-        "  /model NAME      Change the active model\n"
-        "  /exit            Exit Open AI Toolkit\n"
-    )
-
-
-def main():
-    """Run the interactive command-line interface."""
-
-    current_model = DEFAULT_MODEL
-
-    print("=" * 50)
-    print("Open AI Toolkit")
-    print("=" * 50)
-    print(f"Active model: {current_model}")
-    print("Type /help for available commands.\n")
-
-    while True:
-        try:
-            prompt = input("You: ").strip()
-
-            if not prompt:
-                continue
-
-            if prompt.lower() in {"/exit", "exit", "quit"}:
-                print("Goodbye!")
-                break
-
-            if prompt == "/help":
-                show_help()
-                continue
-
-            if prompt == "/models":
-                models = list_models()
-
-                if not models:
-                    print("\nNo Ollama models are installed.\n")
-                    continue
-
-                print("\nInstalled models:")
-
-                for model in models:
-                    marker = "*" if model == current_model else "-"
-                    print(f"  {marker} {model}")
-
-                print()
-                continue
-
-            if prompt.startswith("/model "):
-                new_model = prompt[7:].strip()
-
-                if not new_model:
-                    print("Usage: /model MODEL_NAME\n")
-                    continue
-
-                models = list_models()
-
-                if new_model not in models:
-                    print(
-                        f"Model '{new_model}' is not installed.\n"
-                        "Use /models to see available models.\n"
-                    )
-                    continue
-
-                current_model = new_model
-                print(f"Active model changed to: {current_model}\n")
-                continue
-
-            print(f"\n{current_model}: ", end="", flush=True)
-            generate(prompt, current_model)
-            print("\n")
-
-        except RuntimeError as error:
-            print(f"\nError: {error}\n")
-
-        except KeyboardInterrupt:
-            print("\n\nGoodbye!")
-            break
-
-
-if __name__ == "__main__":
-    main()            "Could not connect to Ollama. "
+    except urllib.error.URLError as error:
+        raise RuntimeError(
+            "Could not connect to Ollama. "
             "Make sure Ollama is installed and running."
+        ) from error
+
+
+def choose_model():
+    """Allow the user to choose an installed Ollama model."""
+
+    try:
+        models = get_models()
+    except RuntimeError as error:
+        print(f"\nError: {error}")
+        return DEFAULT_MODEL
+
+    if not models:
+        print(
+            "\nNo Ollama models were found. "
+            f"Using default model: {DEFAULT_MODEL}"
         )
+        return DEFAULT_MODEL
+
+    print("\nAvailable models:")
+
+    for index, model in enumerate(models, start=1):
+        print(f"{index}. {model}")
+
+    while True:
+        choice = input(
+            f"\nChoose a model [1-{len(models)}] "
+            f"or press Enter for {models[0]}: "
+        ).strip()
+
+        if not choice:
+            return models[0]
+
+        try:
+            index = int(choice) - 1
+
+            if 0 <= index < len(models):
+                return models[index]
+
+        except ValueError:
+            pass
+
+        print("Invalid selection. Please try again.")
 
 
 def main():
+    """Run the interactive Open AI Toolkit."""
+
+    print("=" * 50)
     print("Open AI Toolkit")
-    print("Type 'exit' to quit.\n")
+    print("=" * 50)
+
+    print(
+        "\nLocal AI command-line interface powered by Ollama."
+    )
+
+    model = choose_model()
+
+    print(f"\nUsing model: {model}")
+    print("Type /model to change models.")
+    print("Type /stream to toggle streaming.")
+    print("Type exit to quit.")
+
+    streaming = True
 
     while True:
-        prompt = input("You: ").strip()
-
-        if prompt.lower() in {"exit", "quit"}:
-            print("Goodbye!")
+        try:
+            prompt = input("\nYou: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            print("\nGoodbye!")
             break
 
         if not prompt:
             continue
 
-        response = generate(prompt)
-        print(f"\nAI: {response}\n")
+        if prompt.lower() in {"exit", "quit"}:
+            print("Goodbye!")
+            break
+
+        if prompt.lower() == "/model":
+            model = choose_model()
+            print(f"\nUsing model: {model}")
+            continue
+
+        if prompt.lower() == "/stream":
+            streaming = not streaming
+            status = "enabled" if streaming else "disabled"
+            print(f"\nStreaming {status}.")
+            continue
+
+        print("\nAI: ", end="", flush=True)
+
+        try:
+            if streaming:
+                for chunk in generate_stream(prompt, model):
+                    print(chunk, end="", flush=True)
+
+                print()
+
+            else:
+                response = generate(prompt, model)
+                print(response)
+
+        except RuntimeError as error:
+            print(f"\nError: {error}")
 
 
 if __name__ == "__main__":
