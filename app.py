@@ -1,223 +1,246 @@
-"""
-Open AI Toolkit
-A lightweight toolkit for interacting with local AI models through Ollama.
-"""
+"""Tests for Open AI Toolkit."""
 
+import io
 import json
-import urllib.error
-import urllib.request
+import unittest
+from unittest.mock import MagicMock, patch
 
-OLLAMA_BASE_URL = "http://localhost:11434"
-DEFAULT_MODEL = "llama3.2"
+import app
 
 
-def get_models():
-    """Return the names of locally installed Ollama models."""
+class TestOpenAIToolkit(unittest.TestCase):
 
-    url = f"{OLLAMA_BASE_URL}/api/tags"
+    def test_default_model(self):
+        """The default model should be llama3.2."""
+        self.assertEqual(app.DEFAULT_MODEL, "llama3.2")
 
-    try:
-        with urllib.request.urlopen(url) as response:
-            data = json.loads(response.read().decode("utf-8"))
+    @patch("app.ollama_request")
+    def test_get_models(self, mock_request):
+        """Installed Ollama models should be returned correctly."""
 
-        return [
-            model["name"]
-            for model in data.get("models", [])
-            if "name" in model
+        response_data = {
+            "models": [
+                {"name": "llama3.2"},
+                {"name": "mistral"},
+            ]
+        }
+
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps(
+            response_data
+        ).encode("utf-8")
+
+        mock_request.return_value.__enter__.return_value = mock_response
+
+        models = app.get_models()
+
+        self.assertEqual(
+            models,
+            ["llama3.2", "mistral"],
+        )
+
+        mock_request.assert_called_once_with(
+            "/api/tags"
+        )
+
+    @patch("app.ollama_request")
+    def test_generate(self, mock_request):
+        """Non-streaming generation should return the response."""
+
+        response_data = {
+            "response": "Hello world!"
+        }
+
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps(
+            response_data
+        ).encode("utf-8")
+
+        mock_request.return_value.__enter__.return_value = mock_response
+
+        result = app.generate(
+            "Say hello",
+            "llama3.2",
+        )
+
+        self.assertEqual(
+            result,
+            "Hello world!",
+        )
+
+        mock_request.assert_called_once_with(
+            "/api/generate",
+            {
+                "model": "llama3.2",
+                "prompt": "Say hello",
+                "stream": False,
+            },
+        )
+
+    @patch("app.ollama_request")
+    def test_generate_streaming(self, mock_request):
+        """Streaming chunks should be returned in order."""
+
+        chunks = [
+            b'{"response":"Hello","done":false}\n',
+            b'{"response":" world","done":false}\n',
+            b'{"response":"!","done":true}\n',
         ]
 
-    except urllib.error.URLError as error:
-        raise RuntimeError(
-            "Could not connect to Ollama. "
-            "Make sure Ollama is installed and running."
-        ) from error
+        mock_response = MagicMock()
+        mock_response.__iter__.return_value = iter(chunks)
 
+        mock_request.return_value.__enter__.return_value = mock_response
 
-def generate(prompt, model=DEFAULT_MODEL):
-    """Generate a complete response from an Ollama model."""
-
-    url = f"{OLLAMA_BASE_URL}/api/generate"
-
-    data = {
-        "model": model,
-        "prompt": prompt,
-        "stream": False,
-    }
-
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(data).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(request) as response:
-            result = json.loads(response.read().decode("utf-8"))
-
-        return result.get("response", "")
-
-    except urllib.error.HTTPError as error:
-        raise RuntimeError(
-            f"Ollama returned HTTP error {error.code}."
-        ) from error
-
-    except urllib.error.URLError as error:
-        raise RuntimeError(
-            "Could not connect to Ollama. "
-            "Make sure Ollama is installed and running."
-        ) from error
-
-
-def generate_stream(prompt, model=DEFAULT_MODEL):
-    """Stream response chunks from an Ollama model."""
-
-    url = f"{OLLAMA_BASE_URL}/api/generate"
-
-    data = {
-        "model": model,
-        "prompt": prompt,
-        "stream": True,
-    }
-
-    request = urllib.request.Request(
-        url,
-        data=json.dumps(data).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-
-    try:
-        with urllib.request.urlopen(request) as response:
-            for line in response:
-                if not line:
-                    continue
-
-                result = json.loads(line.decode("utf-8"))
-
-                chunk = result.get("response", "")
-
-                if chunk:
-                    yield chunk
-
-                if result.get("done", False):
-                    break
-
-    except urllib.error.HTTPError as error:
-        raise RuntimeError(
-            f"Ollama returned HTTP error {error.code}."
-        ) from error
-
-    except urllib.error.URLError as error:
-        raise RuntimeError(
-            "Could not connect to Ollama. "
-            "Make sure Ollama is installed and running."
-        ) from error
-
-
-def choose_model():
-    """Allow the user to choose an installed Ollama model."""
-
-    try:
-        models = get_models()
-    except RuntimeError as error:
-        print(f"\nError: {error}")
-        return DEFAULT_MODEL
-
-    if not models:
-        print(
-            "\nNo Ollama models were found. "
-            f"Using default model: {DEFAULT_MODEL}"
+        result = list(
+            app.generate_stream(
+                "Say hello",
+                "llama3.2",
+            )
         )
-        return DEFAULT_MODEL
 
-    print("\nAvailable models:")
+        self.assertEqual(
+            result,
+            [
+                "Hello",
+                " world",
+                "!",
+            ],
+        )
 
-    for index, model in enumerate(models, start=1):
-        print(f"{index}. {model}")
+        mock_request.assert_called_once_with(
+            "/api/generate",
+            {
+                "model": "llama3.2",
+                "prompt": "Say hello",
+                "stream": True,
+            },
+        )
 
-    while True:
-        choice = input(
-            f"\nChoose a model [1-{len(models)}] "
-            f"or press Enter for {models[0]}: "
-        ).strip()
+    @patch("app.ollama_request")
+    def test_generate_handles_ollama_error(
+        self,
+        mock_request,
+    ):
+        """Ollama errors should raise RuntimeError."""
 
-        if not choice:
-            return models[0]
+        chunks = [
+            b'{"error":"model not found"}\n',
+        ]
 
-        try:
-            index = int(choice) - 1
+        mock_response = MagicMock()
+        mock_response.__iter__.return_value = iter(chunks)
 
-            if 0 <= index < len(models):
-                return models[index]
+        mock_request.return_value.__enter__.return_value = mock_response
 
-        except ValueError:
-            pass
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "model not found",
+        ):
+            list(
+                app.generate_stream(
+                    "Hello",
+                    "missing-model",
+                )
+            )
 
-        print("Invalid selection. Please try again.")
+    def test_build_prompt_without_history(self):
+        """A new conversation should contain the current prompt."""
 
+        result = app.build_prompt(
+            [],
+            "Hello",
+        )
 
-def main():
-    """Run the interactive Open AI Toolkit."""
+        self.assertEqual(
+            result,
+            "User: Hello\nAssistant:",
+        )
 
-    print("=" * 50)
-    print("Open AI Toolkit")
-    print("=" * 50)
+    def test_build_prompt_with_history(self):
+        """Previous messages should be included in the prompt."""
 
-    print(
-        "\nLocal AI command-line interface powered by Ollama."
-    )
+        history = [
+            {
+                "role": "user",
+                "content": "My name is Shashank.",
+            },
+            {
+                "role": "assistant",
+                "content": "Nice to meet you, Shashank.",
+            },
+        ]
 
-    model = choose_model()
+        result = app.build_prompt(
+            history,
+            "What is my name?",
+        )
 
-    print(f"\nUsing model: {model}")
-    print("Type /model to change models.")
-    print("Type /stream to toggle streaming.")
-    print("Type exit to quit.")
+        expected = (
+            "User: My name is Shashank.\n"
+            "Assistant: Nice to meet you, Shashank.\n"
+            "User: What is my name?\n"
+            "Assistant:"
+        )
 
-    streaming = True
+        self.assertEqual(
+            result,
+            expected,
+        )
 
-    while True:
-        try:
-            prompt = input("\nYou: ").strip()
-        except (EOFError, KeyboardInterrupt):
-            print("\nGoodbye!")
-            break
+    def test_build_prompt_multiple_messages(self):
+        """Conversation history should preserve message order."""
 
-        if not prompt:
-            continue
+        history = [
+            {
+                "role": "user",
+                "content": "First question",
+            },
+            {
+                "role": "assistant",
+                "content": "First answer",
+            },
+            {
+                "role": "user",
+                "content": "Second question",
+            },
+            {
+                "role": "assistant",
+                "content": "Second answer",
+            },
+        ]
 
-        if prompt.lower() in {"exit", "quit"}:
-            print("Goodbye!")
-            break
+        result = app.build_prompt(
+            history,
+            "Third question",
+        )
 
-        if prompt.lower() == "/model":
-            model = choose_model()
-            print(f"\nUsing model: {model}")
-            continue
+        self.assertIn(
+            "User: First question",
+            result,
+        )
 
-        if prompt.lower() == "/stream":
-            streaming = not streaming
-            status = "enabled" if streaming else "disabled"
-            print(f"\nStreaming {status}.")
-            continue
+        self.assertIn(
+            "Assistant: First answer",
+            result,
+        )
 
-        print("\nAI: ", end="", flush=True)
+        self.assertIn(
+            "User: Second question",
+            result,
+        )
 
-        try:
-            if streaming:
-                for chunk in generate_stream(prompt, model):
-                    print(chunk, end="", flush=True)
+        self.assertIn(
+            "Assistant: Second answer",
+            result,
+        )
 
-                print()
-
-            else:
-                response = generate(prompt, model)
-                print(response)
-
-        except RuntimeError as error:
-            print(f"\nError: {error}")
+        self.assertTrue(
+            result.endswith(
+                "User: Third question\nAssistant:"
+            )
+        )
 
 
 if __name__ == "__main__":
-    main()
+    unittest.main()
