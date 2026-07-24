@@ -39,4 +39,8 @@ jobs:
       - name: Install package
         run: |
           python -m pip install dist/*.whl
-          open-ai-toolkit --help < /dev/null || true
+
+      - name: Test installed CLI
+        run: |
+          open-ai-toolkit --help
+          open-ai-toolkit --version
