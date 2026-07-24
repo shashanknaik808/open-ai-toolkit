@@ -1,40 +1,4 @@
-"""
-Open AI Toolkit
-
-A lightweight command-line toolkit for interacting with
-local AI models through Ollama.
-"""
-
-import json
-import urllib.error
-import urllib.request
-
-
-OLLAMA_BASE_URL = "http://localhost:11434"
-DEFAULT_MODEL = "llama3.2"
-
-
-def ollama_request(endpoint: str, data: dict | None = None):
-    """Send a request to the local Ollama API."""
-
-    url = f"{OLLAMA_BASE_URL}{endpoint}"
-
-    if data is None:
-        request = urllib.request.Request(url)
-    else:
-        request = urllib.request.Request(
-            url,
-            data=json.dumps(data).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
-
-    try:
-        return urllib.request.urlopen(request)
-
-    except urllib.error.HTTPError as error:
-        raise RuntimeError(
-            f"Ollama returned HTTP {error.code}: {error.reason}"
+Fix app syntax error            f"Ollama returned HTTP {error.code}: {error.reason}"
         ) from error
 
     except urllib.error.URLError as error:
