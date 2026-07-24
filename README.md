@@ -4,19 +4,24 @@
 
 A lightweight, open-source Python toolkit for interacting with local AI models through Ollama.
 
-The project provides a simple command-line interface for experimenting with locally hosted language models without requiring a cloud API key.
+Open AI Toolkit provides a simple command-line interface for running locally hosted language models with model selection, streaming responses, and conversation history — without requiring a commercial cloud AI API key.
 
 ## Features
 
 - Run AI models locally through Ollama
 - Interactive command-line chat
+- Automatic discovery of installed Ollama models
+- Interactive model selection
+- Command-line model selection
 - Streaming AI responses
-- Automatically detect installed Ollama models
-- Select between installed models
-- No external Python dependencies
-- Simple Python codebase for learning and experimentation
-- Automated testing with GitHub Actions
-- Open source under the MIT License
+- Conversation history during the current session
+- Clear conversation history without restarting
+- No external runtime Python dependencies
+- CLI `--help` and `--version` commands
+- Automated unit tests
+- GitHub Actions continuous integration
+- Python package build and installation validation
+- MIT licensed and open source
 
 ## Requirements
 
@@ -43,56 +48,102 @@ cd open-ai-toolkit
 
 Install Ollama and make sure it is running on your computer.
 
-### 3. Pull the default model
+### 3. Install a model
+
+Pull the default model:
 
 ```bash
 ollama pull llama3.2
 ```
 
-You can also install additional models supported by Ollama.
-
-For example:
+You can install additional models as well:
 
 ```bash
 ollama pull mistral
 ```
 
-### 4. Run Open AI Toolkit
+### 4. Run the toolkit
+
+From the repository:
 
 ```bash
 python app.py
 ```
+
+## Install as a Python Package
+
+Open AI Toolkit includes a `pyproject.toml` configuration and can be installed locally as a Python package.
+
+From the repository directory:
+
+```bash
+pip install .
+```
+
+After installation, launch it with:
+
+```bash
+open-ai-toolkit
+```
+
+## Command-Line Options
+
+Display help:
+
+```bash
+open-ai-toolkit --help
+```
+
+Display the installed toolkit version:
+
+```bash
+open-ai-toolkit --version
+```
+
+Start with a specific Ollama model:
+
+```bash
+open-ai-toolkit --model llama3.2
+```
+
+For example:
+
+```bash
+open-ai-toolkit --model mistral
+```
+
+Using `--model` skips the interactive model-selection screen.
 
 ## Usage
 
-Start the toolkit:
+Start normally:
 
 ```bash
-python app.py
+open-ai-toolkit
 ```
 
-The toolkit will connect to the locally running Ollama server and detect the models installed on your system.
-
-You can then select a model and enter a prompt.
+The toolkit detects locally installed Ollama models and allows you to choose one.
 
 Example:
 
 ```text
+==================================================
 Open AI Toolkit
+==================================================
+
 Local AI command-line interface powered by Ollama.
 
 Available models:
-
 1. llama3.2
 2. mistral
 
-Select a model: 1
+Choose a model [1-2] or press Enter for llama3.2: 1
 
 Using model: llama3.2
 
 You: Explain recursion in simple terms.
 
-AI: Recursion is when a function solves a problem by calling itself with a smaller version of the same problem.
+AI: Recursion is a technique where a function calls itself to solve smaller versions of the same problem.
 ```
 
 Type:
@@ -101,13 +152,75 @@ Type:
 exit
 ```
 
-to quit the toolkit.
+or:
+
+```text
+quit
+```
+
+to close the toolkit.
+
+## Interactive Commands
+
+While the toolkit is running, you can use:
+
+```text
+/model
+```
+
+Change the active Ollama model.
+
+```text
+/stream
+```
+
+Toggle streaming responses on or off.
+
+```text
+/clear
+```
+
+Clear the current conversation history.
+
+```text
+exit
+```
+
+Exit Open AI Toolkit.
+
+## Conversation History
+
+Open AI Toolkit maintains conversation history during the current session.
+
+For example:
+
+```text
+You: My name is Shashank.
+
+AI: Nice to meet you, Shashank.
+
+You: What is my name?
+
+AI: Your name is Shashank.
+```
+
+Previous user and assistant messages are included when constructing subsequent prompts.
+
+Use:
+
+```text
+/clear
+```
+
+to reset the conversation context.
+
+Conversation history currently exists only for the active session and is not permanently stored on disk.
 
 ## Model Selection
 
-Open AI Toolkit can detect models installed through Ollama.
+Open AI Toolkit automatically discovers models installed through Ollama.
 
-To see the models available directly through Ollama, run:
+To view your installed models directly:
 
 ```bash
 ollama list
@@ -125,43 +238,78 @@ For example:
 ollama pull mistral
 ```
 
-Restart the toolkit and the installed model will become available for selection.
+You can then select the model interactively or start directly with:
+
+```bash
+open-ai-toolkit --model mistral
+```
 
 ## Streaming Responses
 
-Open AI Toolkit uses Ollama's streaming API.
+Streaming is enabled by default.
 
-Instead of waiting for the entire response to finish, generated text is displayed as it arrives from the model.
+Instead of waiting for an entire model response to finish, generated text is displayed as Ollama produces it.
 
-This provides a more responsive command-line chat experience.
+Streaming can be toggled during a session with:
+
+```text
+/stream
+```
+
+## Ollama API
+
+By default, Open AI Toolkit communicates with the local Ollama API at:
+
+```text
+http://localhost:11434
+```
+
+The toolkit currently uses Ollama endpoints for:
+
+- Discovering installed models
+- Generating responses
+- Streaming generated responses
+
+Because inference runs through your local Ollama installation, Open AI Toolkit does not require a commercial cloud AI API key.
 
 ## Running Tests
 
-The project includes automated tests using Python's built-in `unittest` framework.
+The project uses Python's built-in `unittest` framework.
 
-Run the tests with:
+Run the test suite with:
 
 ```bash
 python -m unittest -v tests.test_app
 ```
 
-The tests verify core functionality including:
+The tests cover core functionality including:
 
 - Default model configuration
 - Ollama model discovery
-- Streaming response handling
-- Ollama API error handling
+- Standard generation
+- Streaming generation
+- Ollama error handling
+- Prompt construction
+- Conversation-history construction
 
 ## Continuous Integration
 
-Automated tests run through GitHub Actions whenever code is pushed or a pull request is opened.
+GitHub Actions automatically tests the project whenever code is pushed or a pull request is opened.
 
-The current CI matrix tests the project with:
+The current CI matrix validates:
 
 - Python 3.10
 - Python 3.11
 
-The test status is displayed by the badge at the top of this README.
+CI also verifies that:
+
+- Unit tests pass
+- The Python package builds successfully
+- The generated wheel installs successfully
+- `open-ai-toolkit --help` works
+- `open-ai-toolkit --version` works
+
+The current build status is displayed by the badge at the top of this README.
 
 ## Project Structure
 
@@ -173,73 +321,88 @@ open-ai-toolkit/
 ├── tests/
 │   └── test_app.py
 ├── .gitignore
+├── CHANGELOG.md
 ├── CONTRIBUTING.md
 ├── LICENSE
 ├── README.md
-└── app.py
+├── app.py
+└── pyproject.toml
 ```
-
-## Ollama API
-
-By default, Open AI Toolkit communicates with Ollama at:
-
-```text
-http://localhost:11434
-```
-
-The toolkit uses Ollama's local API for model discovery and text generation.
-
-Because Ollama runs locally, a cloud AI API key is not required.
 
 ## Troubleshooting
 
 ### Cannot connect to Ollama
 
-Make sure Ollama is installed and running.
+Check that Ollama is installed and running.
 
-You can check your installed models with:
+Verify your models with:
 
 ```bash
 ollama list
 ```
 
-If Ollama is not running, start it before launching the toolkit.
+Open AI Toolkit expects Ollama to be available at:
+
+```text
+http://localhost:11434
+```
 
 ### Model not found
 
-Check which models are installed:
+Check installed models:
 
 ```bash
 ollama list
 ```
 
-If necessary, download the model:
+If necessary, install one:
 
 ```bash
 ollama pull llama3.2
 ```
 
-Then run the toolkit again.
+Then restart Open AI Toolkit.
+
+### Check the toolkit version
+
+Run:
+
+```bash
+open-ai-toolkit --version
+```
 
 ## Contributing
 
-Contributions are welcome.
+Contributions, bug reports, documentation improvements, and feature suggestions are welcome.
 
-If you would like to contribute:
+A typical contribution workflow is:
 
 1. Fork the repository.
 2. Create a new branch.
 3. Make your changes.
-4. Run the tests.
+4. Run the test suite.
 5. Commit your changes.
 6. Push your branch.
 7. Open a pull request.
 
-See `CONTRIBUTING.md` for the complete contribution guidelines.
+See `CONTRIBUTING.md` for complete contribution guidelines.
+
+## Roadmap
+
+Potential future improvements include:
+
+- Persistent conversation history
+- Configuration files
+- Additional local AI backends
+- Improved model management
+- One-shot prompt mode
+- Expanded CLI options
+- Additional automated tests
+- Web interface
 
 ## License
 
-This project is licensed under the MIT License.
+Open AI Toolkit is licensed under the MIT License.
 
 See the `LICENSE` file for details.
 
@@ -251,4 +414,4 @@ Created and maintained by **Shashank Naik**.
 
 Open AI Toolkit is under active development.
 
-Current functionality includes local Ollama integration, automatic model discovery, model selection, streaming responses, automated tests, and GitHub Actions continuous integration.
+The current version provides a functional local AI command-line environment with Ollama integration, model discovery and selection, streaming responses, conversation context, Python packaging, automated tests, and continuous integration.
