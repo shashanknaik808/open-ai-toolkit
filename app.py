@@ -239,13 +239,22 @@ def parse_args():
         version=f"%(prog)s {VERSION}",
     )
 
+    parser.add_argument(
+        "--model",
+        metavar="NAME",
+        help=(
+            "Start the toolkit using a specific "
+            "Ollama model."
+        ),
+    )
+
     return parser.parse_args()
 
 
 def main():
     """Run the interactive Open AI Toolkit."""
 
-    parse_args()
+    args = parse_args()
 
     print("=" * 50)
     print("Open AI Toolkit")
@@ -256,7 +265,15 @@ def main():
         "powered by Ollama."
     )
 
-    model = choose_model()
+    if args.model:
+        model = args.model
+
+        print(
+            f"\nModel selected from command line: {model}"
+        )
+
+    else:
+        model = choose_model()
 
     print(
         f"\nUsing model: {model}"
